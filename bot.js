@@ -36,6 +36,7 @@ async function holeVorhersage() {
     timezone: 'Europe/Berlin',
     timeformat: 'unixtime',
     forecast_days: '4',
+    models: 'gfs_seamless',  // gleiches Modell wie die Windfinder-Vorhersage
   });
   const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
   if (!res.ok) throw new Error(`Open-Meteo antwortet mit HTTP ${res.status}`);
@@ -114,6 +115,20 @@ function baueNachricht(fenster, state, heute) {
   return `🌬️ Wind am Wannsee (Mittelwind über ${CONFIG.schwelleKn} kn)\n\n` + bloecke.join('\n\n');
 }
 
+// Schreibt ins Protokoll, wie viel Wind die Quelle pro Tag (8–20 Uhr) vorhersagt.
+function zeigeUebersicht(stunden) {
+  const maxProTag = new Map();
+  for (const s of stunden) {
+    if (s.stunde < CONFIG.vonStunde || s.stunde >= CONFIG.bisStunde) continue;
+    const bisher = maxProTag.get(s.tag);
+    if (!bisher || s.wind > bisher.wind) maxProTag.set(s.tag, s);
+  }
+  console.log(`Vorhersage (stärkster Mittelwind ${CONFIG.vonStunde}–${CONFIG.bisStunde} Uhr, Grenze ${CONFIG.schwelleKn} kn):`);
+  for (const [tag, s] of maxProTag) {
+    console.log(`  ${tagName(tag)}: ${s.wind.toFixed(1)} kn um ${s.stunde} Uhr (Böen ${Math.round(s.boeen)} kn)`);
+  }
+}
+
 // ---------- Zustand (schon gemeldete Tage) ----------
 
 function ladeState() {
@@ -162,7 +177,9 @@ async function main(args) {
 
   const heute = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
   const state = ladeState();
-  const text = baueNachricht(findeFenster(await holeVorhersage()), state, heute);
+  const stunden = await holeVorhersage();
+  zeigeUebersicht(stunden);
+  const text = baueNachricht(findeFenster(stunden), state, heute);
 
   if (!text) console.log('Nichts Neues zu melden.');
   else if (trocken) { console.log(text); return; }
